@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <title>Host - Mini Jackbox</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    .codigo { font-size: 48px; letter-spacing: 6px; margin: 8px 0; }
+    .btn { padding: 12px 16px; cursor: pointer; font-size: 16px; }
+    .caixa { border: 1px solid #ddd; padding: 16px; border-radius: 8px; margin-top: 16px; }
+    .alternativa { padding: 8px; border: 1px solid #ccc; border-radius: 8px; margin: 8px 0; }
+    .timer { font-size: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Host (Tela grande)</h1>
+
+  <button id="btnCriar" class="btn">Criar sala</button>
+  <div id="areaSala" class="caixa" style="display:none;">
+    <div><strong>Código da sala:</strong></div>
+    <div id="codigo" class="codigo">----</div>
+
+    <div class="caixa">
+      <h3>Jogadores no lobby</h3>
+      <ul id="listaJogadores"></ul>
+      <button id="btnIniciar" class="btn">Iniciar rodada</button>
+    </div>
+
+    <div id="areaPergunta" class="caixa" style="display:none;">
+      <div class="timer">Tempo: <span id="tempo">--</span>s</div>
+      <h2 id="enunciado"></h2>
+      <div id="alternativas"></div>
+    </div>
+
+    <div id="areaResultado" class="caixa" style="display:none;">
+      <h3>Resultado</h3>
+      <div>Alternativa correta: <span id="letraCorreta"></span></div>
+      <h4>Placar</h4>
+      <ol id="placar"></ol>
+    </div>
+  </div>
+
+  <!-- Socket.IO client é servido automaticamente em /socket.io/socket.io.js -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // Conecta ao servidor Socket.IO
+    const socket = io();
+
+    const btnCriar = document.getElementById("btnCriar");
+    const areaSala = document.getElementById("areaSala");
+    const codigoEl = document.getElementById("codigo");
+    const listaJogadores = document.getElementById("listaJogadores");
+    const btnIniciar = document.getElementById("btnIniciar");
+    const areaPergunta = document.getElementById("areaPergunta");
+    const enunciadoEl = document.getElementById("enunciado");
+    const alternativasEl = document.getElementById("alternativas");
+    const tempoEl = document.getElementById("tempo");
+    const areaResultado = document.getElementById("areaResultado");
+    const letraCorretaEl = document.getElementById("letraCorreta");
+    const placarEl = document.getElementById("placar");
+
+    let codigoSala = null;
+    let timerLocal = null;
+    let tempoRestante = 0;
+
+    // Criar sala (apenas o host faz isso)
+    btnCriar.onclick = () => {
+      socket.emit("criarSala");
+    };
+
+    // Recebe confirmação de sala criada
+    socket.on("salaCriada", ({ codigo }) => {
+      codigoSala = codigo;
+      areaSala.style.display = "";
+      codigoEl.textContent = codigoSala;
+    });
+
+    // Atualiza lista de jogadores no lobby
+    socket.on("estadoLobby", ({ jogadores }) => {
+      listaJogadores.innerHTML = "";
+      jogadores.forEach((nome) => {
+        const li = document.createElement("li");
+        li.textContent = nome;
+        listaJogadores.appendChild(li);
+      });
+      // Volta para o lobby visual
+      areaPergunta.style.display = "none";
+      areaResultado.style.display = "none";
+    });
+
+    // Host inicia rodada
+    btnIniciar.onclick = () => {
+      if (!codigoSala) return;
+      socket.emit("iniciarRodada", { codigo: codigoSala });
+    };
+
+    // Nova pergunta chegou (mostra para o público)
+    socket.on("novaPergunta", ({ enunciado, alternativas, tempo }) => {
+      areaResultado.style.display = "none";
+      areaPergunta.style.display = "";
+
+      enunciadoEl.textContent = enunciado;
+      alternativasEl.innerHTML = "";
+      alternativas.forEach((texto, idx) => {
+        const div = document.createElement("div");
+        div.className = "alternativa";
+        // Mostramos apenas as alternativas (host não responde)
+        div.textContent = `${String.fromCharCode(65 + idx)}) ${texto}`;
+        alternativasEl.appendChild(div);
+      });
+
+      // Timer de exibição no host (o fim real é decidido no servidor)
+      if (timerLocal) clearInterval(timerLocal);
+      tempoRestante = tempo;
+      tempoEl.textContent = tempoRestante;
+      timerLocal = setInterval(() => {
+        tempoRestante -= 1;
+        tempoEl.textContent = Math.max(0, tempoRestante);
+        if (tempoRestante <= 0) clearInterval(timerLocal);
+      }, 1000);
+    });
+
+    // Resultado da rodada
+    socket.on("resultadoRodada", ({ correta, placar }) => {
+      areaPergunta.style.display = "none";
+      areaResultado.style.display = "";
+
+      letraCorretaEl.textContent = String.fromCharCode(65 + correta);
+      placarEl.innerHTML = "";
+      placar.forEach((p) => {
+        const li = document.createElement("li");
+        li.textContent = `${p.nome} — ${p.pontos} ponto(s)`;
+        placarEl.appendChild(li);
+      });
+    });
+
+    // Erros/avisos
+    socket.on("erro", ({ mensagem }) => {
+      alert(mensagem);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <title>Jogador - Mini Jackbox</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; }
+    input, button { font-size: 16px; padding: 10px; }
+    .caixa { border: 1px solid #ddd; padding: 16px; border-radius: 8px; margin-top: 16px; }
+    .alternativa { padding: 12px; border: 1px solid #ccc; border-radius: 8px; margin: 8px 0; cursor: pointer; }
+    .alternativa.enviada { opacity: 0.6; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <h2>Entrar na sala</h2>
+  <div id="formEntrada" class="caixa">
+    <div>
+      <label>Código da sala</label><br />
+      <input id="inpCodigo" maxlength="4" placeholder="ABCD" />
+    </div>
+    <div style="margin-top:8px;">
+      <label>Seu nome</label><br />
+      <input id="inpNome" placeholder="Seu nome" />
+    </div>
+    <button id="btnEntrar" style="margin-top:12px;">Entrar</button>
+  </div>
+
+  <div id="areaJogo" class="caixa" style="display:none;">
+    <div><strong>Sala:</strong> <span id="codigoSpan">-</span></div>
+    <h3 id="enunciado"></h3>
+    <div id="alternativas"></div>
+    <div id="msg" style="margin-top:8px;"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    const formEntrada = document.getElementById("formEntrada");
+    const inpCodigo = document.getElementById("inpCodigo");
+    const inpNome = document.getElementById("inpNome");
+    const btnEntrar = document.getElementById("btnEntrar");
+
+    const areaJogo = document.getElementById("areaJogo");
+    const codigoSpan = document.getElementById("codigoSpan");
+    const enunciadoEl = document.getElementById("enunciado");
+    const alternativasEl = document.getElementById("alternativas");
+    const msgEl = document.getElementById("msg");
+
+    let codigoSala = null;
+    let jaRespondeu = false;
+
+    // Normaliza código para letras maiúsculas
+    function normalizarCodigo(txt) {
+      return String(txt || "").trim().toUpperCase();
+    }
+
+    // Entrar na sala (emite evento ao servidor)
+    btnEntrar.onclick = () => {
+      const codigo = normalizarCodigo(inpCodigo.value);
+      const nome = (inpNome.value || "").trim();
+      if (!codigo || !nome) {
+        alert("Informe o código da sala e seu nome.");
+        return;
+      }
+      socket.emit("entrarSala", { codigo, nome });
+    };
+
+    // Confirmação de entrada
+    socket.on("entrouNaSala", ({ codigo, nome }) => {
+      codigoSala = codigo;
+      formEntrada.style.display = "none";
+      areaJogo.style.display = "";
+      codigoSpan.textContent = codigoSala;
+      msgEl.textContent = `Bem-vindo(a), ${nome}! Aguarde o host iniciar a rodada.`;
+      enunciadoEl.textContent = "";
+      alternativasEl.innerHTML = "";
+      jaRespondeu = false;
+    });
+
+    // Nova pergunta chegou (o jogador responde aqui)
+    socket.on("novaPergunta", ({ enunciado, alternativas }) => {
+      msgEl.textContent = "";
+      jaRespondeu = false;
+
+      enunciadoEl.textContent = enunciado;
+      alternativasEl.innerHTML = "";
+      alternativas.forEach((texto, idx) => {
+        const div = document.createElement("div");
+        div.className = "alternativa";
+        div.textContent = `${String.fromCharCode(65 + idx)}) ${texto}`;
+        div.onclick = () => {
+          if (jaRespondeu) return;
+          socket.emit("responder", { codigo: codigoSala, indice: idx });
+          jaRespondeu = true;
+          msgEl.textContent = "Resposta enviada!";
+          // Desabilita as alternativas visualmente
+          Array.from(alternativasEl.children).forEach(c => c.classList.add("enviada"));
+        };
+        alternativasEl.appendChild(div);
+      });
+    });
+
+    // Confirmação de que o servidor recebeu
+    socket.on("respostaRecebida", () => {
+      // (já mostramos feedback acima; este evento garante confirmação do servidor)
+    });
+
+    // Resultado (o jogador só visualiza)
+    socket.on("resultadoRodada", ({ correta }) => {
+      msgEl.textContent = `Rodada encerrada. Correta: ${String.fromCharCode(65 + correta)}.`;
+    });
+
+    // Erros/avisos
+    socket.on("erro", ({ mensagem }) => {
+      alert(mensagem);
+    });
+  </script>
+</body>
+</html>
